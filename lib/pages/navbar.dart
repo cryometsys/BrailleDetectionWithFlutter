@@ -1,0 +1,132 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:new_flutter_demo/services/database_services.dart';
+import 'package:new_flutter_demo/styles/app_colors.dart';
+
+class Navbar extends StatelessWidget {
+  const Navbar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final DatabaseService dbService = DatabaseService();
+
+    return Drawer(
+      child: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                UserAccountsDrawerHeader(
+                  accountName: const Text(
+                    'Bornil Chowdhury',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  accountEmail: const Text('bornil@gmail.com'),
+                  currentAccountPicture: CircleAvatar(
+                    child: ClipOval(
+                      child: Image.asset(
+                        'assets/temp/user1.jpg',
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  decoration: const BoxDecoration(
+                    color: AppColors.secondaryBlue,
+                  ),
+                  otherAccountsPictures: [
+                    IconButton(
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                  ],
+                ),
+                ListTile(
+                  leading: const Icon(Icons.home_filled),
+                  title: const Text('Home'),
+                  onTap: () {},
+                ),
+                ListTile(
+                  leading: const Icon(Icons.book),
+                  title: const Text('Books'),
+                  onTap: () {
+                    if (ModalRoute.of(context)?.settings.name != '/book') {
+                      Navigator.pop(context);
+                      Navigator.of(context).pushNamed('/book');
+                    } else {
+                      Navigator.pop(context);
+                    }
+                  },
+                ),
+                const Divider(
+                  height: 1,
+                  indent: 15,
+                  endIndent: 15,
+                  thickness: 1,
+                  color: Colors.black12,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.person),
+                  title: const Text('Profile'),
+                  onTap: () {
+                    if (ModalRoute.of(context)?.settings.name != '/profile') {
+                      Navigator.pop(context);
+                      Navigator.of(context).pushNamed('/profile');
+                    } else {
+                      Navigator.pop(context);
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text('Settings'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).pushNamed('/setting');
+                  },
+                ),
+                const Divider(
+                  height: 1,
+                  indent: 15,
+                  endIndent: 15,
+                  thickness: 1,
+                  color: Colors.black12,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.exit_to_app_outlined),
+                  title: const Text('Logout'),
+                  onTap: () async {
+                    await dbService.logoutUser();
+                    Navigator.of(context).pushReplacementNamed('/');
+                  },
+                ),
+              ],
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 30),
+            child: Text(
+              'BRAILLIFY@2023',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.black26,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

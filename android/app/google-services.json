@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "110327838300",
+    "project_id": "brailledetectorflutter",
+    "storage_bucket": "brailledetectorflutter.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:110327838300:android:abcdffada7b36c1d8e1899",
+        "android_client_info": {
+          "package_name": "com.example.new_flutter_demo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAzjZYvRzj_2DDdtlJO3Szi0_6mlb37QYY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
