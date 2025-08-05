@@ -1,11 +1,116 @@
+// Updated Book model to handle braille processing
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class Book {
+  String name;
+  DateTime createdAt;
+  DateTime modifiedAt;
+  
+  // New fields for braille processing
+  List<String> imageUrls;
+  List<BraillePageResult> braillePages;
+  String bookType; // 'regular', 'braille_detected', 'braille_processed'
+  
+  Book({
+    required this.name,
+    required this.createdAt,
+    required this.modifiedAt,
+    this.imageUrls = const [],
+    this.braillePages = const [],
+    this.bookType = 'regular',
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'createdAt': Timestamp.fromDate(createdAt),
+      'modifiedAt': Timestamp.fromDate(modifiedAt),
+      'imageUrls': imageUrls,
+      'braillePages': braillePages.map((page) => page.toMap()).toList(),
+      'bookType': bookType,
+    };
+  }
+
+  factory Book.fromMap(Map<String, dynamic> map) {
+    return Book(
+      name: map['name'] ?? '',
+      createdAt: (map['createdAt'] as Timestamp).toDate(),
+      modifiedAt: (map['modifiedAt'] as Timestamp).toDate(),
+      imageUrls: (map['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [],
+      braillePages: (map['braillePages'] as List<dynamic>?)
+          ?.map((pageMap) => BraillePageResult.fromMap(pageMap as Map<String, dynamic>))
+          .toList() ?? [],
+      bookType: map['bookType'] ?? 'regular',
+    );
+  }
+}
+
+// Model for individual braille page results within a book
+class BraillePageResult {
+  final int pageNumber;
+  final String originalImageUrl;
+  final String? annotatedImageBase64;
+  final List<String> detectedRows;
+  final String processedText;
+  final String explanation;
+  final double confidence;
+  final int characterCount;
+  final DateTime processedAt;
+
+  BraillePageResult({
+    required this.pageNumber,
+    required this.originalImageUrl,
+    this.annotatedImageBase64,
+    required this.detectedRows,
+    required this.processedText,
+    required this.explanation,
+    required this.confidence,
+    required this.characterCount,
+    required this.processedAt,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'pageNumber': pageNumber,
+      'originalImageUrl': originalImageUrl,
+      'annotatedImageBase64': annotatedImageBase64,
+      'detectedRows': detectedRows,
+      'processedText': processedText,
+      'explanation': explanation,
+      'confidence': confidence,
+      'characterCount': characterCount,
+      'processedAt': Timestamp.fromDate(processedAt),
+    };
+  }
+
+  factory BraillePageResult.fromMap(Map<String, dynamic> map) {
+    return BraillePageResult(
+      pageNumber: map['pageNumber'] ?? 0,
+      originalImageUrl: map['originalImageUrl'] ?? '',
+      annotatedImageBase64: map['annotatedImageBase64'],
+      detectedRows: (map['detectedRows'] as List<dynamic>?)?.cast<String>() ?? [],
+      processedText: map['processedText'] ?? '',
+      explanation: map['explanation'] ?? '',
+      confidence: (map['confidence'] as num?)?.toDouble() ?? 0.0,
+      characterCount: (map['characterCount'] as num?)?.toInt() ?? 0,
+      processedAt: (map['processedAt'] as Timestamp).toDate(),
+    );
+  }
+}
+
+// Updated Camera Page
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:new_flutter_demo/models/book.dart';
+import 'package:new_flutter_demo/models/user.dart';
+import 'package:new_flutter_demo/services/database_service.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../styles/app_colors.dart';
+
+enum ProcessingMode { detectionOnly, fullProcessing, none }
 
 class CameraPage extends StatefulWidget {
   final List<String> pathImage;
@@ -21,6 +126,15 @@ class CameraPage extends StatefulWidget {
 
 class _CameraPageState extends State<CameraPage> {
   TextEditingController? nameController;
+  final DatabaseService _databaseService = DatabaseService();
+  
+  // Processing state
+  bool _isProcessing = false;
+  bool _showBrailleResults = false;
+  List<BraillePageResult> _brailleResults = [];
+  
+  // Processing mode selection
+  ProcessingMode _selectedMode = ProcessingMode.none;
 
   @override
   void initState() {
@@ -42,6 +156,7 @@ class _CameraPageState extends State<CameraPage> {
     if (!await directory.exists()) await directory.create(recursive: true);
     final Directory pgDirectory = Directory(pagePath);
     if (!await pgDirectory.exists()) await pgDirectory.create(recursive: true);
+    
     for (int i = 0; i < widget.pathImage.length; i++) {
       String imagePath = widget.pathImage[i];
       File sourceFile = File(imagePath);
@@ -50,51 +165,398 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
+  // Updated method to process braille and save as a book
+  Future<void> _processBrailleDetectionOnly() async {
+    setState(() {
+      _isProcessing = true;
+      _brailleResults.clear();
+    });
+
+    try {
+      List<String> uploadedImageUrls = [];
+      
+      for (int i = 0; i < widget.pathImage.length; i++) {
+        File imageFile = File(widget.pathImage[i]);
+        
+        // Upload image to Firebase Storage
+        String? imageUrl = await _databaseService.uploadImageToStorage(imageFile);
+        if (imageUrl != null) {
+          uploadedImageUrls.add(imageUrl);
+        }
+        
+        // Call detection-only API
+        BrailleApiResponse response = await _databaseService.detectBrailleOnly(imageFile);
+        
+        if (response.success) {
+          BraillePageResult pageResult = BraillePageResult(
+            pageNumber: i + 1,
+            originalImageUrl: imageUrl ?? '',
+            annotatedImageBase64: response.annotatedImageBase64,
+            detectedRows: response.detectedRows ?? [],
+            processedText: '', // No processing in detection-only mode
+            explanation: 'Detection only - no AI processing performed',
+            confidence: response.confidence ?? 0.0,
+            characterCount: response.characterCount ?? 0,
+            processedAt: DateTime.now(),
+          );
+          
+          _brailleResults.add(pageResult);
+        } else {
+          _showErrorSnackBar('Detection failed for image ${i + 1}: ${response.error}');
+        }
+      }
+    } catch (e) {
+      _showErrorSnackBar('Error during detection: $e');
+    } finally {
+      setState(() {
+        _isProcessing = false;
+        _showBrailleResults = true;
+      });
+    }
+  }
+
+  Future<void> _processBrailleFull() async {
+    setState(() {
+      _isProcessing = true;
+      _brailleResults.clear();
+    });
+
+    try {
+      List<String> uploadedImageUrls = [];
+      
+      for (int i = 0; i < widget.pathImage.length; i++) {
+        File imageFile = File(widget.pathImage[i]);
+        
+        // Upload image to Firebase Storage
+        String? imageUrl = await _databaseService.uploadImageToStorage(imageFile);
+        if (imageUrl != null) {
+          uploadedImageUrls.add(imageUrl);
+        }
+        
+        // Call full processing API
+        BrailleApiResponse response = await _databaseService.processBrailleFull(imageFile);
+        
+        if (response.success) {
+          BraillePageResult pageResult = BraillePageResult(
+            pageNumber: i + 1,
+            originalImageUrl: imageUrl ?? '',
+            annotatedImageBase64: response.annotatedImageBase64,
+            detectedRows: response.detectedRows ?? [],
+            processedText: response.processedText ?? '',
+            explanation: response.explanation ?? '',
+            confidence: response.confidence ?? 0.0,
+            characterCount: response.characterCount ?? 0,
+            processedAt: DateTime.now(),
+          );
+          
+          _brailleResults.add(pageResult);
+        } else {
+          _showErrorSnackBar('Full processing failed for image ${i + 1}: ${response.error}');
+        }
+      }
+    } catch (e) {
+      _showErrorSnackBar('Error during full processing: $e');
+    } finally {
+      setState(() {
+        _isProcessing = false;
+        _showBrailleResults = true;
+      });
+    }
+  }
+
   Future<void> checkAndSaveBook() async {
     String bookName = nameController!.text.trim();
     if (bookName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Name Field Is Empty'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showErrorSnackBar('Name Field Is Empty');
       return;
     }
+    
+    final String userId = FirebaseAuth.instance.currentUser!.uid;
+    
+    // Check if book name already exists
     final QuerySnapshot existingBooks = await FirebaseFirestore.instance
         .collection('users')
-        .doc(FirebaseAuth.instance.currentUser!.uid)
+        .doc(userId)
         .collection('books')
         .where('name', isEqualTo: bookName)
         .get();
+        
     if (existingBooks.docs.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Book Name Already Exists'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showErrorSnackBar('Book Name Already Exists');
       return;
     }
+    
+    // Save images locally
     await saveImages(bookName);
+    
+    // Create book with braille processing results
+    String bookType = 'regular';
+    if (_selectedMode == ProcessingMode.detectionOnly) {
+      bookType = 'braille_detected';
+    } else if (_selectedMode == ProcessingMode.fullProcessing) {
+      bookType = 'braille_processed';
+    }
+    
     Book newBook = Book(
       name: bookName,
       createdAt: DateTime.now(),
       modifiedAt: DateTime.now(),
+      imageUrls: _brailleResults.map((result) => result.originalImageUrl).toList(),
+      braillePages: _brailleResults,
+      bookType: bookType,
     );
+    
+    // Save book to Firestore
     await FirebaseFirestore.instance
         .collection('users')
-        .doc(FirebaseAuth.instance.currentUser!.uid)
+        .doc(userId)
         .collection('books')
         .doc(bookName)
         .set(newBook.toMap());
+    
+    // Update user's books list
+    await _updateUserBooksList(userId, bookName);
+    
+    _showSuccessSnackBar('Book Saved Successfully');
+    Navigator.pop(context);
+  }
+
+  Future<void> _updateUserBooksList(String userId, String bookName) async {
+    try {
+      DocumentReference userDoc = FirebaseFirestore.instance.collection('users').doc(userId);
+      
+      await userDoc.update({
+        'books': FieldValue.arrayUnion([bookName]),
+        'updatedOn': Timestamp.now(),
+      });
+    } catch (e) {
+      print('Error updating user books list: $e');
+    }
+  }
+
+  // Method to save chat message to user's messages
+  Future<void> _saveChatToUserMessages(String messageContent, String responseContent) async {
+    try {
+      String userId = FirebaseAuth.instance.currentUser!.uid;
+      
+      // Get current user data
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+      
+      if (userDoc.exists) {
+        Users currentUser = Users.fromJson(userDoc.data() as Map<String, Object?>);
+        
+        // Create new messages
+        Message userMessage = Message(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          content: messageContent,
+          senderId: userId,
+          receiverId: 'ai_assistant',
+          timestamp: Timestamp.now(),
+          isRead: true,
+        );
+        
+        Message aiMessage = Message(
+          id: (DateTime.now().millisecondsSinceEpoch + 1).toString(),
+          content: responseContent,
+          senderId: 'ai_assistant',
+          receiverId: userId,
+          timestamp: Timestamp.now(),
+          isRead: false,
+        );
+        
+        // Add messages to user's message list
+        List<Message> updatedMessages = [...currentUser.messages, userMessage, aiMessage];
+        
+        // Update user document
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .update({
+          'messages': updatedMessages.map((msg) => msg.toJson()).toList(),
+          'updatedOn': Timestamp.now(),
+        });
+      }
+    } catch (e) {
+      print('Error saving chat to user messages: $e');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Document Saved'),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
         backgroundColor: Colors.green,
       ),
     );
-    Navigator.pop(context);
+  }
+
+  Widget _buildProcessingModeSelector() {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Processing Mode',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primaryBlue,
+              ),
+            ),
+            const SizedBox(height: 12),
+            RadioListTile<ProcessingMode>(
+              title: const Text('Save as Regular Book'),
+              subtitle: const Text('No braille processing'),
+              value: ProcessingMode.none,
+              groupValue: _selectedMode,
+              onChanged: (ProcessingMode? value) {
+                setState(() {
+                  _selectedMode = value!;
+                });
+              },
+              activeColor: AppColors.primaryBlue,
+            ),
+            RadioListTile<ProcessingMode>(
+              title: const Text('Detection Only'),
+              subtitle: const Text('Quick braille character detection'),
+              value: ProcessingMode.detectionOnly,
+              groupValue: _selectedMode,
+              onChanged: (ProcessingMode? value) {
+                setState(() {
+                  _selectedMode = value!;
+                });
+              },
+              activeColor: AppColors.primaryBlue,
+            ),
+            RadioListTile<ProcessingMode>(
+              title: const Text('Full Processing'),
+              subtitle: const Text('Detection + AI processing + explanation'),
+              value: ProcessingMode.fullProcessing,
+              groupValue: _selectedMode,
+              onChanged: (ProcessingMode? value) {
+                setState(() {
+                  _selectedMode = value!;
+                });
+              },
+              activeColor: AppColors.primaryBlue,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProcessingButton() {
+    if (_selectedMode == ProcessingMode.none) {
+      return const SizedBox.shrink();
+    }
+    
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      child: ElevatedButton.icon(
+        onPressed: _isProcessing ? null : () async {
+          if (_selectedMode == ProcessingMode.detectionOnly) {
+            await _processBrailleDetectionOnly();
+          } else if (_selectedMode == ProcessingMode.fullProcessing) {
+            await _processBrailleFull();
+          }
+        },
+        icon: _isProcessing 
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+          : const Icon(Icons.visibility),
+        label: Text(_isProcessing 
+          ? 'Processing...' 
+          : 'Process Braille Images'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primaryBlue,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrailleResults() {
+    if (!_showBrailleResults || _brailleResults.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Braille Processing Results',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primaryBlue,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ..._brailleResults.asMap().entries.map((entry) {
+              int index = entry.key;
+              BraillePageResult result = entry.value;
+              
+              return ExpansionTile(
+                title: Text('Page ${index + 1}'),
+                subtitle: Text('Characters: ${result.characterCount}, Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (result.detectedRows.isNotEmpty) ...[
+                          const Text('Detected Text:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text(result.detectedRows.join(' ')),
+                          const SizedBox(height: 8),
+                        ],
+                        if (result.processedText.isNotEmpty) ...[
+                          const Text('Processed Text:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text(result.processedText),
+                          const SizedBox(height: 8),
+                        ],
+                        if (result.explanation.isNotEmpty) ...[
+                          const Text('Explanation:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text(result.explanation),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -106,6 +568,7 @@ class _CameraPageState extends State<CameraPage> {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
+          // Image preview
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -128,6 +591,8 @@ class _CameraPageState extends State<CameraPage> {
             ),
           ),
           const SizedBox(height: 16.0),
+          
+          // Book name input
           TextFormField(
             controller: nameController,
             decoration: const InputDecoration(
@@ -144,7 +609,17 @@ class _CameraPageState extends State<CameraPage> {
             ),
             cursorColor: AppColors.primaryBlue,
           ),
-
+          
+          const SizedBox(height: 16.0),
+          
+          // Processing mode selector
+          _buildProcessingModeSelector(),
+          
+          // Processing button
+          _buildProcessingButton(),
+          
+          // Results display
+          _buildBrailleResults(),
         ],
       ),
       bottomNavigationBar: InkWell(

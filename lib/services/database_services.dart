@@ -15,11 +15,11 @@ class DatabaseService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final FlutterSecureStorage _secureStorage = FlutterSecureStorage();
   
-  // Python API endpoint - change this to your actual server URL
+  // Updated Python API endpoint to match your connector
   static const String _pythonApiUrl = 'http://localhost:5000/api';
   // For production: static const String _pythonApiUrl = 'https://your-api-domain.com/api';
 
-  // ==================== AUTH METHODS ====================
+  // ==================== AUTH METHODS (unchanged) ====================
   
   Future<UserCredential?> loginUser(String email, String password) async {
     try {
@@ -89,7 +89,7 @@ class DatabaseService {
     await _firestore.collection('users').doc(uid).update(updatedUser.toJson());
   }
 
-  // ==================== BRAILLE PROCESSING METHODS ====================
+  // ==================== BRAILLE PROCESSING METHODS (Updated) ====================
 
   Future<String?> uploadImageToStorage(File imageFile) async {
     try {
@@ -105,19 +105,14 @@ class DatabaseService {
     }
   }
 
-  Future<String> _imageToBase64(File imageFile) async {
-    Uint8List imageBytes = await imageFile.readAsBytes();
-    return base64Encode(imageBytes);
-  }
-
-  Future<BrailleApiResponse> detectBraille(File imageFile) async {
+  Future<BrailleApiResponse> detectBrailleOnly(File imageFile) async {
     try {
       // Convert image to base64
       String base64Image = await _imageToBase64(imageFile);
       
-      // Call Python API
+      // Call detection-only route
       final response = await http.post(
-        Uri.parse('$_pythonApiUrl/detect-braille'),
+        Uri.parse('$_pythonApiUrl/detect-braille-only'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'image_base64': base64Image}),
       );
@@ -128,18 +123,75 @@ class DatabaseService {
       } else {
         return BrailleApiResponse(
           success: false,
-          error: 'API call failed with status: ${response.statusCode}',
+          error: 'Detection API call failed with status: ${response.statusCode}',
         );
       }
     } catch (e) {
       return BrailleApiResponse(
         success: false,
-        error: 'Error calling braille API: $e',
+        error: 'Error calling detection API: $e',
       );
     }
   }
 
-  Future<ChatApiResponse> chatWithAssistant(String message, {String? threadId}) async {
+  Future<BrailleApiResponse> processBrailleFull(File imageFile) async {
+    try {
+      // Convert image to base64
+      String base64Image = await _imageToBase64(imageFile);
+      
+      // Call full processing route
+      final response = await http.post(
+        Uri.parse('$_pythonApiUrl/process-braille'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'image_base64': base64Image}),
+      );
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> responseData = jsonDecode(response.body);
+        return BrailleApiResponse.fromJson(responseData);
+      } else {
+        return BrailleApiResponse(
+          success: false,
+          error: 'Full processing API call failed with status: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      return BrailleApiResponse(
+        success: false,
+        error: 'Error calling full processing API: $e',
+      );
+    }
+  }
+
+  // New method: Process already detected braille text strings
+  Future<BrailleApiResponse> processBrailleText(List<String> textStrings) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_pythonApiUrl/process-braille-text'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'text_strings': textStrings}),
+      );
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> responseData = jsonDecode(response.body);
+        return BrailleApiResponse.fromJson(responseData);
+      } else {
+        return BrailleApiResponse(
+          success: false,
+          error: 'Text processing API call failed with status: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      return BrailleApiResponse(
+        success: false,
+        error: 'Error calling text processing API: $e',
+      );
+    }
+  }
+
+  // ==================== CHAT METHODS (Updated) ====================
+
+  Future<ChatApiResponse> chatWithAI(String message, {String? threadId}) async {
     try {
       final response = await http.post(
         Uri.parse('$_pythonApiUrl/chat'),
@@ -167,6 +219,162 @@ class DatabaseService {
     }
   }
 
+  Future<void> saveChatToUserMessages(String userId, String userMessage, String aiResponse) async {
+    try {
+      // Get current user data
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+      
+      if (userDoc.exists) {
+        Users currentUser = Users.fromJson(userDoc.data() as Map<String, Object?>);
+        
+        // Create new messages
+        Message userMsg = Message(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          content: userMessage,
+          senderId: userId,
+          receiverId: 'ai_assistant',
+          timestamp: Timestamp.now(),
+          isRead: true,
+        );
+        
+        Message aiMsg = Message(
+          id: (DateTime.now().millisecondsSinceEpoch + 1).toString(),
+          content: aiResponse,
+          senderId: 'ai_assistant',
+          receiverId: userId,
+          timestamp: Timestamp.now(),
+          isRead: false,
+        );
+        
+        // Add messages to user's message list
+        List<Message> updatedMessages = [...currentUser.messages, userMsg, aiMsg];
+        
+        // Update user document
+        await _firestore.collection('users').doc(userId).update({
+          'messages': updatedMessages.map((msg) => msg.toJson()).toList(),
+          'updatedOn': Timestamp.now(),
+        });
+      }
+    } catch (e) {
+      print('Error saving chat to user messages: $e');
+    }
+  }
+
+  // ==================== BOOK MANAGEMENT METHODS (unchanged) ====================
+
+  Future<List<Book>> getUserBooks(String userId) async {
+    try {
+      QuerySnapshot snapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('books')
+          .orderBy('modifiedAt', descending: true)
+          .get();
+
+      return snapshot.docs
+          .map((doc) => Book.fromMap(doc.data() as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      print('Error getting user books: $e');
+      return [];
+    }
+  }
+
+  Future<Book?> getBook(String userId, String bookName) async {
+    try {
+      DocumentSnapshot doc = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('books')
+          .doc(bookName)
+          .get();
+          
+      if (doc.exists) {
+        return Book.fromMap(doc.data() as Map<String, dynamic>);
+      }
+      return null;
+    } catch (e) {
+      print('Error getting book: $e');
+      return null;
+    }
+  }
+
+  Future<bool> updateBook(String userId, String bookName, Book updatedBook) async {
+    try {
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('books')
+          .doc(bookName)
+          .update(updatedBook.toMap());
+      return true;
+    } catch (e) {
+      print('Error updating book: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteBook(String userId, String bookName) async {
+    try {
+      // Delete book document
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('books')
+          .doc(bookName)
+          .delete();
+      
+      // Remove from user's books list
+      await _firestore.collection('users').doc(userId).update({
+        'books': FieldValue.arrayRemove([bookName]),
+        'updatedOn': Timestamp.now(),
+      });
+      
+      return true;
+    } catch (e) {
+      print('Error deleting book: $e');
+      return false;
+    }
+  }
+
+  // ==================== MESSAGE MANAGEMENT METHODS (unchanged) ====================
+
+  Future<List<Message>> getUserMessages(String userId) async {
+    try {
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+      
+      if (userDoc.exists) {
+        Users user = Users.fromJson(userDoc.data() as Map<String, Object?>);
+        return user.messages;
+      }
+      return [];
+    } catch (e) {
+      print('Error getting user messages: $e');
+      return [];
+    }
+  }
+
+  Future<List<Message>> getUserChatWithAI(String userId) async {
+    try {
+      List<Message> allMessages = await getUserMessages(userId);
+      
+      // Filter messages where senderId is AI or receiverId is AI
+      return allMessages.where((message) => 
+        message.senderId == 'ai_assistant' || message.receiverId == 'ai_assistant'
+      ).toList();
+    } catch (e) {
+      print('Error getting AI chat messages: $e');
+      return [];
+    }
+  }
+
+  // ==================== UTILITY METHODS ====================
+
+  Future<String> _imageToBase64(File imageFile) async {
+    Uint8List imageBytes = await imageFile.readAsBytes();
+    return base64Encode(imageBytes);
+  }
+
   Future<bool> checkApiHealth() async {
     try {
       final response = await http.get(Uri.parse('$_pythonApiUrl/health'));
@@ -176,7 +384,7 @@ class DatabaseService {
     }
   }
 
-  // ==================== BRAILLE RESULT STORAGE ====================
+  // ==================== BRAILLE RESULT STORAGE (unchanged) ====================
 
   Future<String?> saveBrailleDetectionResult(BrailleDetectionResult result) async {
     try {
@@ -234,92 +442,9 @@ class DatabaseService {
     }
   }
 
-  // ==================== CHAT METHODS ====================
+  // ==================== INTEGRATED WORKFLOW (Updated) ====================
 
-  Future<String?> createChatThread(List<String> participantIds, String threadType) async {
-    try {
-      DocumentReference docRef = _firestore.collection('chat_threads').doc();
-      
-      ChatThread thread = ChatThread(
-        id: docRef.id,
-        participantIds: participantIds,
-        threadType: threadType,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      );
-
-      await docRef.set(thread.toJson());
-      return docRef.id;
-    } catch (e) {
-      print('Error creating chat thread: $e');
-      return null;
-    }
-  }
-
-  Future<void> sendChatMessage(ChatMessage message) async {
-    try {
-      // Save message
-      await _firestore.collection('chat_messages').doc(message.id).set(message.toJson());
-
-      // Update thread's last message info if receiverId exists (not AI chat)
-      if (message.receiverId != null) {
-        String threadId = _generateThreadId([message.senderId, message.receiverId!]);
-        await _firestore.collection('chat_threads').doc(threadId).update({
-          'lastMessageContent': message.content,
-          'lastMessageTime': message.timestamp,
-          'updatedAt': Timestamp.now(),
-        });
-      }
-    } catch (e) {
-      print('Error sending message: $e');
-    }
-  }
-
-  String _generateThreadId(List<String> participantIds) {
-    List<String> sortedIds = List.from(participantIds)..sort();
-    return sortedIds.join('_');
-  }
-
-  Future<List<ChatMessage>> getChatMessages(String threadId, {int limit = 50}) async {
-    try {
-      QuerySnapshot snapshot = await _firestore
-          .collection('chat_messages')
-          .where('threadId', isEqualTo: threadId)
-          .orderBy('timestamp', descending: true)
-          .limit(limit)
-          .get();
-
-      List<ChatMessage> messages = snapshot.docs
-          .map((doc) => ChatMessage.fromJson(doc.data() as Map<String, Object?>))
-          .toList();
-
-      return messages.reversed.toList(); // Return in chronological order
-    } catch (e) {
-      print('Error getting chat messages: $e');
-      return [];
-    }
-  }
-
-  Future<List<ChatThread>> getUserChatThreads(String userId) async {
-    try {
-      QuerySnapshot snapshot = await _firestore
-          .collection('chat_threads')
-          .where('participantIds', arrayContains: userId)
-          .orderBy('updatedAt', descending: true)
-          .get();
-
-      return snapshot.docs
-          .map((doc) => ChatThread.fromJson(doc.data() as Map<String, Object?>))
-          .toList();
-    } catch (e) {
-      print('Error getting chat threads: $e');
-      return [];
-    }
-  }
-
-  // ==================== INTEGRATED WORKFLOW ====================
-
-  Future<BrailleDetectionResult?> processAndSaveBrailleImage(File imageFile) async {
+  Future<BrailleDetectionResult?> processAndSaveBrailleImage(File imageFile, {bool fullProcessing = true}) async {
     try {
       String? userId = _auth.currentUser?.uid;
       if (userId == null) return null;
@@ -329,7 +454,13 @@ class DatabaseService {
       if (imageUrl == null) return null;
 
       // Step 2: Process with Python API
-      BrailleApiResponse apiResponse = await detectBraille(imageFile);
+      BrailleApiResponse apiResponse;
+      if (fullProcessing) {
+        apiResponse = await processBrailleFull(imageFile);
+      } else {
+        apiResponse = await detectBrailleOnly(imageFile);
+      }
+      
       if (!apiResponse.success) return null;
 
       // Step 3: Create result object
@@ -370,5 +501,17 @@ class DatabaseService {
       print('Error in integrated braille processing: $e');
       return null;
     }
+  }
+
+  // ==================== LEGACY METHODS (for backward compatibility) ====================
+
+  Future<BrailleApiResponse> detectBraille(File imageFile) async {
+    // Legacy method - defaults to full processing
+    return processBrailleFull(imageFile);
+  }
+
+  Future<ChatApiResponse> chatWithAssistant(String message, {String? threadId}) async {
+    // Legacy method - same as chatWithAI
+    return chatWithAI(message, threadId: threadId);
   }
 }
