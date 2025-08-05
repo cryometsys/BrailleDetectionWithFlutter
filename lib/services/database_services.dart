@@ -7,6 +7,9 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:new_flutter_demo/models/user.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:new_flutter_demo/models/braille_models.dart';
+import 'package:new_flutter_demo/models/book.dart';
 // Import your new models here
 
 class DatabaseService {
@@ -14,13 +17,13 @@ class DatabaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final FlutterSecureStorage _secureStorage = FlutterSecureStorage();
-  
+
   // Updated Python API endpoint to match your connector
-  static const String _pythonApiUrl = 'http://localhost:5000/api';
+  static const String _pythonApiUrl = 'http://localhost:62365/api';
   // For production: static const String _pythonApiUrl = 'https://your-api-domain.com/api';
 
   // ==================== AUTH METHODS (unchanged) ====================
-  
+
   Future<UserCredential?> loginUser(String email, String password) async {
     try {
       UserCredential userCredential = await _auth.signInWithEmailAndPassword(
@@ -28,7 +31,7 @@ class DatabaseService {
         password: password,
       );
       return userCredential;
-    } on FirebaseAuthException catch (e) {
+    } on FirebaseAuthException {
       return null;
     }
   }
@@ -51,17 +54,19 @@ class DatabaseService {
 
   Future<UserCredential?> signupUser(String email, String password) async {
     try {
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      UserCredential userCredential =
+          await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
       return userCredential;
-    } on FirebaseAuthException catch (e) {
+    } on FirebaseAuthException {
       return null;
     }
   }
 
-  Future<void> saveUserData(UserCredential userCredential, String userFirstName, String userLastName) async {
+  Future<void> saveUserData(UserCredential userCredential, String userFirstName,
+      String userLastName) async {
     Users newUser = Users(
       firstName: userFirstName,
       lastName: userLastName,
@@ -74,7 +79,10 @@ class DatabaseService {
       messages: [],
     );
 
-    await _firestore.collection('users').doc(userCredential.user?.uid).set(newUser.toJson());
+    await _firestore
+        .collection('users')
+        .doc(userCredential.user?.uid)
+        .set(newUser.toJson());
   }
 
   Future<Users?> getUserData(String uid) async {
@@ -93,11 +101,13 @@ class DatabaseService {
 
   Future<String?> uploadImageToStorage(File imageFile) async {
     try {
-      String fileName = 'braille_images/${DateTime.now().millisecondsSinceEpoch}_${imageFile.path.split('/').last}';
-      
-      TaskSnapshot snapshot = await _storage.ref().child(fileName).putFile(imageFile);
+      String fileName =
+          'braille_images/${DateTime.now().millisecondsSinceEpoch}_${imageFile.path.split('/').last}';
+
+      TaskSnapshot snapshot =
+          await _storage.ref().child(fileName).putFile(imageFile);
       String downloadUrl = await snapshot.ref.getDownloadURL();
-      
+
       return downloadUrl;
     } catch (e) {
       print('Error uploading image: $e');
@@ -109,7 +119,7 @@ class DatabaseService {
     try {
       // Convert image to base64
       String base64Image = await _imageToBase64(imageFile);
-      
+
       // Call detection-only route
       final response = await http.post(
         Uri.parse('$_pythonApiUrl/detect-braille-only'),
@@ -123,7 +133,8 @@ class DatabaseService {
       } else {
         return BrailleApiResponse(
           success: false,
-          error: 'Detection API call failed with status: ${response.statusCode}',
+          error:
+              'Detection API call failed with status: ${response.statusCode}',
         );
       }
     } catch (e) {
@@ -138,7 +149,7 @@ class DatabaseService {
     try {
       // Convert image to base64
       String base64Image = await _imageToBase64(imageFile);
-      
+
       // Call full processing route
       final response = await http.post(
         Uri.parse('$_pythonApiUrl/process-braille'),
@@ -152,7 +163,8 @@ class DatabaseService {
       } else {
         return BrailleApiResponse(
           success: false,
-          error: 'Full processing API call failed with status: ${response.statusCode}',
+          error:
+              'Full processing API call failed with status: ${response.statusCode}',
         );
       }
     } catch (e) {
@@ -164,7 +176,8 @@ class DatabaseService {
   }
 
   // New method: Process already detected braille text strings
-  Future<BrailleApiResponse> processBrailleText(List<String> textStrings) async {
+  Future<BrailleApiResponse> processBrailleText(
+      List<String> textStrings) async {
     try {
       final response = await http.post(
         Uri.parse('$_pythonApiUrl/process-braille-text'),
@@ -178,7 +191,8 @@ class DatabaseService {
       } else {
         return BrailleApiResponse(
           success: false,
-          error: 'Text processing API call failed with status: ${response.statusCode}',
+          error:
+              'Text processing API call failed with status: ${response.statusCode}',
         );
       }
     } catch (e) {
@@ -219,14 +233,17 @@ class DatabaseService {
     }
   }
 
-  Future<void> saveChatToUserMessages(String userId, String userMessage, String aiResponse) async {
+  Future<void> saveChatToUserMessages(
+      String userId, String userMessage, String aiResponse) async {
     try {
       // Get current user data
-      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
-      
+      DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(userId).get();
+
       if (userDoc.exists) {
-        Users currentUser = Users.fromJson(userDoc.data() as Map<String, Object?>);
-        
+        Users currentUser =
+            Users.fromJson(userDoc.data() as Map<String, Object?>);
+
         // Create new messages
         Message userMsg = Message(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -236,7 +253,7 @@ class DatabaseService {
           timestamp: Timestamp.now(),
           isRead: true,
         );
-        
+
         Message aiMsg = Message(
           id: (DateTime.now().millisecondsSinceEpoch + 1).toString(),
           content: aiResponse,
@@ -245,10 +262,14 @@ class DatabaseService {
           timestamp: Timestamp.now(),
           isRead: false,
         );
-        
+
         // Add messages to user's message list
-        List<Message> updatedMessages = [...currentUser.messages, userMsg, aiMsg];
-        
+        List<Message> updatedMessages = [
+          ...currentUser.messages,
+          userMsg,
+          aiMsg
+        ];
+
         // Update user document
         await _firestore.collection('users').doc(userId).update({
           'messages': updatedMessages.map((msg) => msg.toJson()).toList(),
@@ -288,7 +309,7 @@ class DatabaseService {
           .collection('books')
           .doc(bookName)
           .get();
-          
+
       if (doc.exists) {
         return Book.fromMap(doc.data() as Map<String, dynamic>);
       }
@@ -299,7 +320,8 @@ class DatabaseService {
     }
   }
 
-  Future<bool> updateBook(String userId, String bookName, Book updatedBook) async {
+  Future<bool> updateBook(
+      String userId, String bookName, Book updatedBook) async {
     try {
       await _firestore
           .collection('users')
@@ -323,13 +345,13 @@ class DatabaseService {
           .collection('books')
           .doc(bookName)
           .delete();
-      
+
       // Remove from user's books list
       await _firestore.collection('users').doc(userId).update({
         'books': FieldValue.arrayRemove([bookName]),
         'updatedOn': Timestamp.now(),
       });
-      
+
       return true;
     } catch (e) {
       print('Error deleting book: $e');
@@ -341,8 +363,9 @@ class DatabaseService {
 
   Future<List<Message>> getUserMessages(String userId) async {
     try {
-      DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
-      
+      DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(userId).get();
+
       if (userDoc.exists) {
         Users user = Users.fromJson(userDoc.data() as Map<String, Object?>);
         return user.messages;
@@ -357,11 +380,13 @@ class DatabaseService {
   Future<List<Message>> getUserChatWithAI(String userId) async {
     try {
       List<Message> allMessages = await getUserMessages(userId);
-      
+
       // Filter messages where senderId is AI or receiverId is AI
-      return allMessages.where((message) => 
-        message.senderId == 'ai_assistant' || message.receiverId == 'ai_assistant'
-      ).toList();
+      return allMessages
+          .where((message) =>
+              message.senderId == 'ai_assistant' ||
+              message.receiverId == 'ai_assistant')
+          .toList();
     } catch (e) {
       print('Error getting AI chat messages: $e');
       return [];
@@ -386,10 +411,12 @@ class DatabaseService {
 
   // ==================== BRAILLE RESULT STORAGE (unchanged) ====================
 
-  Future<String?> saveBrailleDetectionResult(BrailleDetectionResult result) async {
+  Future<String?> saveBrailleDetectionResult(
+      BrailleDetectionResult result) async {
     try {
-      DocumentReference docRef = _firestore.collection('braille_detections').doc();
-      
+      DocumentReference docRef =
+          _firestore.collection('braille_detections').doc();
+
       BrailleDetectionResult resultWithId = BrailleDetectionResult(
         id: docRef.id,
         userId: result.userId,
@@ -412,7 +439,8 @@ class DatabaseService {
     }
   }
 
-  Future<List<BrailleDetectionResult>> getUserBrailleResults(String userId) async {
+  Future<List<BrailleDetectionResult>> getUserBrailleResults(
+      String userId) async {
     try {
       QuerySnapshot snapshot = await _firestore
           .collection('braille_detections')
@@ -421,7 +449,8 @@ class DatabaseService {
           .get();
 
       return snapshot.docs
-          .map((doc) => BrailleDetectionResult.fromJson(doc.data() as Map<String, Object?>))
+          .map((doc) => BrailleDetectionResult.fromJson(
+              doc.data() as Map<String, Object?>))
           .toList();
     } catch (e) {
       print('Error getting braille results: $e');
@@ -431,9 +460,11 @@ class DatabaseService {
 
   Future<BrailleDetectionResult?> getBrailleResult(String resultId) async {
     try {
-      DocumentSnapshot doc = await _firestore.collection('braille_detections').doc(resultId).get();
+      DocumentSnapshot doc =
+          await _firestore.collection('braille_detections').doc(resultId).get();
       if (doc.exists) {
-        return BrailleDetectionResult.fromJson(doc.data() as Map<String, Object?>);
+        return BrailleDetectionResult.fromJson(
+            doc.data() as Map<String, Object?>);
       }
       return null;
     } catch (e) {
@@ -444,10 +475,16 @@ class DatabaseService {
 
   // ==================== INTEGRATED WORKFLOW (Updated) ====================
 
-  Future<BrailleDetectionResult?> processAndSaveBrailleImage(File imageFile, {bool fullProcessing = true}) async {
+  Future<BrailleDetectionResult?> processAndSaveBrailleImage(File imageFile,
+      {bool fullProcessing = true}) async {
     try {
       String? userId = _auth.currentUser?.uid;
-      if (userId == null) return null;
+
+      // Check if user is authenticated
+      if (userId == null) {
+        print('Error: User not authenticated');
+        return null;
+      }
 
       // Step 1: Upload original image to Firebase Storage
       String? imageUrl = await uploadImageToStorage(imageFile);
@@ -460,13 +497,13 @@ class DatabaseService {
       } else {
         apiResponse = await detectBrailleOnly(imageFile);
       }
-      
+
       if (!apiResponse.success) return null;
 
       // Step 3: Create result object
       BrailleDetectionResult result = BrailleDetectionResult(
         id: '', // Will be set when saving
-        userId: userId,
+        userId: userId, // Use the actual userId, not the string 'userId'
         originalImageUrl: imageUrl,
         annotatedImageBase64: apiResponse.annotatedImageBase64,
         detectedRows: apiResponse.detectedRows ?? [],
@@ -485,7 +522,7 @@ class DatabaseService {
       // Return result with ID
       return BrailleDetectionResult(
         id: savedId,
-        userId: result.userId,
+        userId: userId, // Use the actual userId here too
         originalImageUrl: result.originalImageUrl,
         annotatedImageBase64: result.annotatedImageBase64,
         detectedRows: result.detectedRows,
@@ -496,13 +533,11 @@ class DatabaseService {
         createdAt: result.createdAt,
         updatedAt: result.updatedAt,
       );
-
     } catch (e) {
       print('Error in integrated braille processing: $e');
       return null;
     }
   }
-
   // ==================== LEGACY METHODS (for backward compatibility) ====================
 
   Future<BrailleApiResponse> detectBraille(File imageFile) async {
@@ -510,7 +545,8 @@ class DatabaseService {
     return processBrailleFull(imageFile);
   }
 
-  Future<ChatApiResponse> chatWithAssistant(String message, {String? threadId}) async {
+  Future<ChatApiResponse> chatWithAssistant(String message,
+      {String? threadId}) async {
     // Legacy method - same as chatWithAI
     return chatWithAI(message, threadId: threadId);
   }
