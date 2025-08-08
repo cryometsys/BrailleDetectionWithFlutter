@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "110327838300",
+    "firebase_url": "https://brailledetectorflutter-default-rtdb.firebaseio.com",
     "project_id": "brailledetectorflutter",
     "storage_bucket": "brailledetectorflutter.firebasestorage.app"
   },

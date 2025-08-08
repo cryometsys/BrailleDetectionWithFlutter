@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
+import 'package:new_flutter_demo/models/user.dart';
 import 'package:new_flutter_demo/pages/camera_page.dart';
 import 'package:new_flutter_demo/pages/navbar.dart';
 import 'package:new_flutter_demo/styles/app_colors.dart';
@@ -32,29 +34,37 @@ class _BookPageState extends State<BookPage> {
   }
 
   Future<void> fetchUserData() async {
-    FirebaseFirestore.instance
-        .collection('users')
-        .get()
-        .then((QuerySnapshot querySnapshot) async {
-      for (var doc in querySnapshot.docs) {
-        firstName = doc["firstName"];
-        QuerySnapshot booksSnapshot =
-            await doc.reference.collection('books').get();
-        userBooks = [];
-        modifiedDates = [];
-        for (var bookDoc in booksSnapshot.docs) {
-          userBooks.add(bookDoc.id);
-          Timestamp timestamp = bookDoc['modifiedAt'];
-          DateTime modifiedDate = timestamp.toDate();
-          modifiedDates.add(modifiedDate);
-        }
-        print("The books are: $userBooks");
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      String uid = user.uid;
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        Users doc = Users.fromJson(userDoc.data()! as Map<String, dynamic>);
         setState(() {
-          loadAllBookImages();
+          firstName = doc.firstName;
         });
+        QuerySnapshot booksSnapshot = await userDoc.reference.collection('books').get();
+        List<String> books = [];
+        List<DateTime> dates = [];
+        for (var bookDoc in booksSnapshot.docs) {
+          books.add(bookDoc['name']);
+          Timestamp timestamp = bookDoc['modifiedAt'];
+          dates.add(timestamp.toDate());
+        }
+        print("The books are: $books");
+        setState(() {
+          userBooks = books;
+          modifiedDates = dates;
+        });
+        await loadAllBookImages();
+      } else {
+        print('User document does not exist');
       }
-    });
+    } else {
+      print('No user signed in');
+    }
   }
+
 
   Future<void> loadAllBookImages() async {
     for (String book in userBooks) {

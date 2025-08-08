@@ -22,16 +22,15 @@ class Users {
   });
 
   Users.fromJson(Map<String, Object?> json)
-      : this(
-          firstName: json['firstName']! as String,
-          lastName: json['lastName']! as String,
-          mail: json['mail']! as String,
-          gender: json['gender']! as String,
-          createdOn: json['createdOn']! as Timestamp,
-          updatedOn: json['updatedOn']! as Timestamp,
-          birthDate: json['birthDate']! as Timestamp,
-          books: json['books']! as List<String>,
-        );
+      : firstName = json['firstName'] as String? ?? '',
+        lastName = json['lastName'] as String? ?? '',
+        mail = json['mail'] as String? ?? '',
+        gender = json['gender'] as String?, // keeps as nullable, no forcing not-null
+        createdOn = json['createdOn'] as Timestamp? ?? Timestamp.now(),
+        updatedOn = json['updatedOn'] as Timestamp? ?? Timestamp.now(),
+        birthDate = json['birthDate'] as Timestamp?,  // nullable with safe cast
+        books = (json['books'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [];
+
 
   Users copyWith({
     String? firstName,
