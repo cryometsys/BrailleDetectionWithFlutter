@@ -16,11 +16,15 @@ class SettingPage extends StatefulWidget {
 class _SettingPageState extends State<SettingPage> {
   @override
   Widget build(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final String name = args?['name'] ?? 'Unknown';
+    final String mail = args?['mail'] ?? 'unknown@example.com';
+
     final auth = FirebaseAuth.instance;
     final storage = FlutterSecureStorage();
     double scrHeight = MediaQuery.of(context).size.height;
     return Scaffold(
-      // drawer: const Navbar(),
+      drawer: Navbar(name: name, mail: mail),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         toolbarHeight: scrHeight * 0.1,

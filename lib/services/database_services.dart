@@ -57,8 +57,7 @@ class DatabaseService {
       gender: null,
       createdOn: Timestamp.now(),
       updatedOn: Timestamp.now(),
-      birthDate: null,
-      books: [],
+      birthDate: null
     );
 
     await _firestore.collection('users').doc(userCredential.user?.uid).set(newUser.toJson());

@@ -68,16 +68,6 @@ class _BookViewPageState extends State<BookViewPage> {
             itemBuilder: (BuildContext context) {
               return [
                 const PopupMenuItem<String>(
-                  value: 'add_page',
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Add Page'),
-                      Icon(Icons.add_circle_outline_outlined),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem<String>(
                   value: 'change_name',
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

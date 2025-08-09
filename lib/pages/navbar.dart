@@ -49,11 +49,6 @@ class Navbar extends StatelessWidget {
                   ],
                 ),
                 ListTile(
-                  leading: const Icon(Icons.home_filled),
-                  title: const Text('Home'),
-                  onTap: () {},
-                ),
-                ListTile(
                   leading: const Icon(Icons.book),
                   title: const Text('Books'),
                   onTap: () {
@@ -78,7 +73,9 @@ class Navbar extends StatelessWidget {
                   onTap: () {
                     if (ModalRoute.of(context)?.settings.name != '/profile') {
                       Navigator.pop(context);
-                      Navigator.of(context).pushNamed('/profile');
+                      Navigator.of(context).pushNamed('/profile', arguments: {
+                        'name': name, 'mail': mail,
+                      });
                     } else {
                       Navigator.pop(context);
                     }
@@ -89,7 +86,9 @@ class Navbar extends StatelessWidget {
                   title: const Text('Settings'),
                   onTap: () {
                     Navigator.pop(context);
-                    Navigator.of(context).pushNamed('/setting');
+                    Navigator.of(context).pushNamed('/setting', arguments: {
+                      'name': name, 'mail': mail,
+                    });
                   },
                 ),
                 const Divider(
