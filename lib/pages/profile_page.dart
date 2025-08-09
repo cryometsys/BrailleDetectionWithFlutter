@@ -101,7 +101,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     double scrHeight = MediaQuery.of(context).size.height;
     return Scaffold(
-      drawer: const Navbar(),
+      // drawer: const Navbar(),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         toolbarHeight: scrHeight * 0.1,

@@ -1,18 +1,23 @@
 //dart
 import 'dart:convert';
 import 'dart:io';
+
 //packages
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
+import 'package:uuid/uuid.dart';
 //firebase
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:new_flutter_demo/models/book.dart';
+
 //models
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/braille_detection_result.dart';
+
 //api service
 import 'package:new_flutter_demo/services/api_services.dart';
+
 //styles
 import '../styles/app_colors.dart';
 
@@ -75,7 +80,7 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  Future<void> saveBookPages(String bookName) async {
+  Future<void> saveBookPages(String bookName, String newBookId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -83,14 +88,13 @@ class _CameraPageState extends State<CameraPage> {
         .collection('users')
         .doc(user.uid)
         .collection('books')
-        .doc(bookName);
+        .doc(newBookId);
 
     final Directory? rootDir = await getExternalStorageDirectory();
     if (rootDir == null) {
       throw Exception("Unable to get external storage directory");
     }
 
-    // Define folder paths for pages, explanations, and maps
     final String pageFolderPath = '${rootDir.path}/braillify/$bookName/pages';
     final String explFolderPath = '${rootDir.path}/braillify/$bookName/expl';
     final String mapFolderPath = '${rootDir.path}/braillify/$bookName/map';
@@ -107,35 +111,24 @@ class _CameraPageState extends State<CameraPage> {
     if (!(await mapFolder.exists())) {
       await mapFolder.create(recursive: true);
     }
-
-    // Loop through each image and save corresponding info
     for (int i = 0; i < widget.pathImage.length; i++) {
       final result = detectionResults[i];
       final pageNumber = 'page${i + 1}';
-
-      // Save processed text to pages/pageX.txt
       if (result?.processedText != null) {
         final File pageFile = File('$pageFolderPath/page${i + 1}.txt');
         await pageFile.writeAsString(result!.processedText);
       }
-
-      // Save explanation to expl/explX.txt
       if (result?.explanation != null) {
         final File explFile = File('$explFolderPath/expl${i + 1}.txt');
         await explFile.writeAsString(result!.explanation);
       }
-
-      // Save annotated image as JPEG to map/mapX.jpeg
       if (result?.annotatedImageBase64 != null) {
         final File mapFile = File('$mapFolderPath/map${i + 1}.jpeg');
         final bytes = base64Decode(result!.annotatedImageBase64!);
         await mapFile.writeAsBytes(bytes);
       }
-
-      // The original image path on device storage
-      final String originalImagePath = '${rootDir.path}/braillify/$bookName/img/image${i + 1}.jpeg';
-
-      // Create BookPage object and save to Firestore
+      final String originalImagePath =
+          '${rootDir.path}/braillify/$bookName/img/image${i + 1}.jpeg';
       BookPage page = BookPage(
         pageNumber: pageNumber,
         originalImagePath: originalImagePath,
@@ -149,6 +142,7 @@ class _CameraPageState extends State<CameraPage> {
       await bookRef.collection('pages').doc(pageNumber).set(page.toMap());
     }
   }
+
   Future<void> checkAndSaveBook() async {
     String bookName = nameController!.text.trim();
     if (bookName.isEmpty) {
@@ -183,13 +177,15 @@ class _CameraPageState extends State<CameraPage> {
         modifiedAt: DateTime.now(),
         totalPages: widget.pathImage.length,
       );
+      var uuid = const Uuid();
+      String newBookId = uuid.v4();
       await FirebaseFirestore.instance
           .collection('users')
           .doc(FirebaseAuth.instance.currentUser!.uid)
           .collection('books')
-          .doc(bookName)
+          .doc(newBookId)
           .set(newBook.toMap());
-      await saveBookPages(bookName);
+      await saveBookPages(bookName, newBookId);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Document Saved'),

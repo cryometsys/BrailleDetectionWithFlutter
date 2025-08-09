@@ -31,6 +31,7 @@ class MyApp extends StatelessWidget {
       valueListenable: isDarkMode,
       builder: (context, isDark, child) {
         return MaterialApp(
+          navigatorObservers: [routeObserver],
           theme: isDark ? AppTheme.darkTheme : AppTheme.lightTheme,
           initialRoute: '/',
           navigatorKey: navigatorKey,

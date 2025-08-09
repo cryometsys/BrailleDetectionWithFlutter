@@ -1,17 +1,25 @@
 import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import '../styles/app_colors.dart';
 
 class BookViewPage extends StatefulWidget {
   final String bookTitle;
+  final String bookId;
   final List<String> pages;
   final List<String> images;
+  final List<String> maps;
+  final List<String> explanations;
 
   const BookViewPage(
       {super.key,
       required this.bookTitle,
       required this.pages,
-      required this.images});
+      required this.images,
+      required this.maps,
+      required this.explanations, required this.bookId});
 
   @override
   State<BookViewPage> createState() => _BookViewPageState();
@@ -19,15 +27,22 @@ class BookViewPage extends StatefulWidget {
 
 class _BookViewPageState extends State<BookViewPage> {
   int currentPageIndex = 0;
+  late String _currentBookTitle;
 
   TextEditingController nameController = TextEditingController();
   TextEditingController pageController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    _currentBookTitle = widget.bookTitle;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.bookTitle),
+        title: Text(_currentBookTitle),
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -39,12 +54,11 @@ class _BookViewPageState extends State<BookViewPage> {
                 case 'change_name':
                   _showChangeNamePopup();
                   break;
-                case 'grid_view':
-                  break;
                 case 'share':
                   _showShareOptionsPopup();
                   break;
                 case 'delete_book':
+                  _confirmAndDeleteBook();
                   break;
                 case 'search_page':
                   _showSearchPagePopup();
@@ -70,16 +84,6 @@ class _BookViewPageState extends State<BookViewPage> {
                     children: [
                       Text('Change Name'),
                       Icon(Icons.edit),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem<String>(
-                  value: 'grid_view',
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Grid View'),
-                      Icon(Icons.grid_view),
                     ],
                   ),
                 ),
@@ -177,24 +181,11 @@ class _BookViewPageState extends State<BookViewPage> {
           Padding(
             padding:
                 const EdgeInsets.symmetric(vertical: 15.0, horizontal: 12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    _showImagePopup();
-                  },
-                  child: const Text("View Image"),
-                ),
-                ElevatedButton(
-                  onPressed: () {},
-                  child: const Text("Delete Image"),
-                ),
-                ElevatedButton(
-                  onPressed: () {},
-                  child: const Text("Read Image"),
-                ),
-              ],
+            child: Center(
+              child: ElevatedButton(
+                onPressed: _showPageOptionsSheet,
+                child: const Text("Page Options"),
+              ),
             ),
           ),
         ],
@@ -202,42 +193,65 @@ class _BookViewPageState extends State<BookViewPage> {
     );
   }
 
-  void _showImagePopup() {
-    showDialog(
+  void _showPageOptionsSheet() {
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.8,
-            height: MediaQuery.of(context).size.height * 0.5,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.file(
-                      File(widget.images[currentPageIndex]),
-                      fit: BoxFit.cover,
-                    ),
+                _buildSheetOption('View Image', Icons.image, () {
+                  Navigator.pop(context);
+                  _showImagePopup();
+                }),
+                _buildSheetOption('View Image Mapping', Icons.map, () {
+                  Navigator.pop(context);
+                  _showImageMappingPopup();
+                }),
+                _buildSheetOption('View AI Explanation', Icons.psychology, () {
+                  Navigator.pop(context);
+                  _showAIExplanationPopup();
+                }),
+                _buildSheetOption('Delete Image', Icons.delete_outline, () {
+                  Navigator.pop(context);
+                  _deleteImage();
+                }, color: Colors.red),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey.shade300,
+                    foregroundColor: Colors.black87,
                   ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
+                  onPressed: () => Navigator.pop(context),
                   child: const Text('Close'),
-                )
+                ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildSheetOption(String title, IconData icon, VoidCallback onTap,
+      {Color? color}) {
+    final giveColor = color ?? Colors.black;
+    return ListTile(
+      leading: Icon(
+        icon,
+        color: giveColor,
+      ),
+      title: Text(
+        title,
+        style: TextStyle(color: giveColor),
+      ),
+      onTap: onTap,
     );
   }
 
@@ -253,7 +267,7 @@ class _BookViewPageState extends State<BookViewPage> {
               TextField(
                 controller: nameController,
                 decoration: InputDecoration(
-                  hintText: widget.bookTitle,
+                  hintText: _currentBookTitle,
                 ),
               ),
             ],
@@ -275,13 +289,82 @@ class _BookViewPageState extends State<BookViewPage> {
                 backgroundColor: AppColors.primaryBlue,
                 foregroundColor: Colors.white,
               ),
-              onPressed: () {
-                // Implement save logic here
-                print("Name changed to ${nameController.text}");
-                Navigator.of(context).pop();
+              onPressed: () async {
+                final newName = nameController.text.trim();
+                if (newName.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Name cannot be empty'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                //local storage change
+                final Directory? rootDir = await getExternalStorageDirectory();
+                final oldBookDir = Directory('${rootDir?.path}/braillify/$_currentBookTitle');
+                final newBookDir = Directory('${rootDir?.path}/braillify/$newName');
+                if (await oldBookDir.exists()) {
+                  await oldBookDir.rename(newBookDir.path);
+                }
+
+                //firebase change
+                final user = FirebaseAuth.instance.currentUser;
+                if (user == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('User not logged in'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                final booksRef = FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .collection('books');
+                try {
+                  final existingBooks = await booksRef.where('name', isEqualTo: newName).get();
+
+                  if (existingBooks.docs.isNotEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Book name already exists'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+                  await booksRef.doc(widget.bookId).update({
+                    'name': newName,
+                    'modifiedAt': DateTime.now(),
+                  });
+
+                  setState(() {
+                    _currentBookTitle = newName;
+                  });
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Book name changed successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+
+                  Navigator.of(context).pop(); // Close the dialog
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error changing book name: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               },
               child: const Text('Save'),
             )
+
           ],
         );
       },
@@ -347,6 +430,74 @@ class _BookViewPageState extends State<BookViewPage> {
       },
     );
   }
+
+  Future<void> _confirmAndDeleteBook() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Book'),
+          content: const Text('Are you sure you want to delete this book? This action cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User not logged in'), backgroundColor: Colors.red),
+        );
+        return;
+      }
+      final String oldBookName = _currentBookTitle;
+      final String bookId = widget.bookId;
+
+      // Firestore references
+      final bookRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('books')
+          .doc(bookId);
+
+      try {
+        final pagesSnapshot = await bookRef.collection('pages').get();
+        for (final doc in pagesSnapshot.docs) {
+          await doc.reference.delete();
+        }
+        await bookRef.delete();
+
+        // Delete local storage folder
+        final Directory? rootDir = await getExternalStorageDirectory();
+        if (rootDir != null) {
+          final oldBookDir = Directory('${rootDir.path}/braillify/$oldBookName');
+          if (await oldBookDir.exists()) {
+            await oldBookDir.delete(recursive: true);
+            print('Local storage folder deleted successfully');
+          }
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Book deleted successfully'), backgroundColor: Colors.green),
+        );
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting book: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
 
   void _showShareOptionsPopup() {
     showDialog(
@@ -459,5 +610,176 @@ class _BookViewPageState extends State<BookViewPage> {
         );
       },
     );
+  }
+
+  //Page Option Functions
+  void _showImageMappingPopup() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => Scaffold(
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            leading: IconButton(
+              icon: const Icon(
+                Icons.close,
+                color: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(),
+            ),
+          ),
+          backgroundColor: Colors.black,
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.file(
+                File(widget.maps[currentPageIndex]),
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showImagePopup() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => Scaffold(
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            leading: IconButton(
+              icon: const Icon(
+                Icons.close,
+                color: Colors.white,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(),
+            ),
+          ),
+          backgroundColor: Colors.black,
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.file(
+                File(widget.images[currentPageIndex]),
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAIExplanationPopup() {
+    final explanationText = (widget.explanations.length > currentPageIndex)
+        ? widget.explanations[currentPageIndex]
+        : '(No explanation available)';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('AI Explanation'),
+        content: SingleChildScrollView(
+          child: Text(explanationText),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteImage() async {
+    if (currentPageIndex < 0 || currentPageIndex >= widget.pages.length) return;
+
+    //Delete image file
+    try {
+      final imageFile = File(widget.images[currentPageIndex]);
+      if (await imageFile.exists()) {
+        await imageFile.delete();
+      }
+    } catch (e) {
+      print('Error deleting image file: $e');
+    }
+
+    // Delete annotated image file
+    try {
+      final mapFile = File(widget.maps[currentPageIndex]);
+      if (await mapFile.exists()) {
+        await mapFile.delete();
+      }
+    } catch (e) {
+      print('Error deleting map file: $e');
+    }
+
+    final Directory? rootDir = await getExternalStorageDirectory();
+    if (rootDir == null) return;
+
+    final String bookName = widget.bookTitle;
+    // Build paths for page text and explanation files
+    final pageFilePath =
+        '${rootDir.path}/braillify/$bookName/pages/page${currentPageIndex + 1}.txt';
+    final explFilePath =
+        '${rootDir.path}/braillify/$bookName/expl/expl${currentPageIndex + 1}.txt';
+
+    //Page delete
+    try {
+      final pageFile = File(pageFilePath);
+      if (await pageFile.exists()) {
+        await pageFile.delete();
+      }
+    } catch (e) {
+      print('Error deleting page text file: $e');
+    }
+
+    //Explanation delete
+    try {
+      final explFile = File(explFilePath);
+      if (await explFile.exists()) {
+        await explFile.delete();
+      }
+    } catch (e) {
+      print('Error deleting explanation file: $e');
+    }
+
+    //Firebase data delete
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final pageNumber = 'page${currentPageIndex + 1}';
+    final bookRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('books')
+        .doc(bookName);
+
+    try {
+      await bookRef.collection('pages').doc(pageNumber).delete();
+      if (currentPageIndex == 0) {
+        await bookRef.delete();
+        print("Book document deleted because no pages remain.");
+      }
+    } catch (e) {
+      print('Error deleting page from Firestore: $e');
+    }
+
+    setState(() {
+      widget.images.removeAt(currentPageIndex);
+      widget.pages.removeAt(currentPageIndex);
+      widget.maps.removeAt(currentPageIndex);
+      widget.explanations.removeAt(currentPageIndex);
+
+      if (currentPageIndex >= widget.pages.length && currentPageIndex > 0) {
+        currentPageIndex--;
+      }
+    });
+    if (widget.pages.isEmpty) {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop(true);
+      }
+    }
   }
 }

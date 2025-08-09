@@ -5,7 +5,13 @@ import 'package:new_flutter_demo/services/database_services.dart';
 import 'package:new_flutter_demo/styles/app_colors.dart';
 
 class Navbar extends StatelessWidget {
-  const Navbar({super.key});
+  final String name;
+  final String mail;
+  const Navbar({
+    super.key,
+    required this.name,
+    required this.mail,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,24 +25,14 @@ class Navbar extends StatelessWidget {
               padding: EdgeInsets.zero,
               children: [
                 UserAccountsDrawerHeader(
-                  accountName: const Text(
-                    'Bornil Chowdhury',
-                    style: TextStyle(
+                  accountName: Text(
+                    name,
+                    style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  accountEmail: const Text('bornil@gmail.com'),
-                  currentAccountPicture: CircleAvatar(
-                    child: ClipOval(
-                      child: Image.asset(
-                        'assets/temp/user1.jpg',
-                        width: 80,
-                        height: 80,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
+                  accountEmail: Text(mail),
                   decoration: const BoxDecoration(
                     color: AppColors.secondaryBlue,
                   ),

@@ -106,7 +106,6 @@ class Book {
     return 'Book(name: $name, createdAt: $createdAt, modifiedAt: $modifiedAt, totalPages: $totalPages)';
   }
 
-  // Optional: Override equality operators
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;

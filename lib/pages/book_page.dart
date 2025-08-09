@@ -12,6 +12,8 @@ import 'package:path_provider/path_provider.dart';
 import '../services/database_services.dart';
 import 'book_view_page.dart';
 
+final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
+
 class BookPage extends StatefulWidget {
   const BookPage({super.key});
 
@@ -19,13 +21,17 @@ class BookPage extends StatefulWidget {
   State<BookPage> createState() => _BookPageState();
 }
 
-class _BookPageState extends State<BookPage> {
+class _BookPageState extends State<BookPage> with RouteAware {
   late int userCount;
   String? firstName;
+  String? lastName;
   final DatabaseService dbService = DatabaseService();
   List<String> userBooks = [];
   Map<String, List<String>> bookImages = {};
+  Map<String, List<String>> bookMaps = {};
   List<DateTime> modifiedDates = [];
+  List<String> bookIds = [];
+  String? userMail;
 
   @override
   void initState() {
@@ -33,20 +39,46 @@ class _BookPageState extends State<BookPage> {
     fetchUserData();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)! as PageRoute);
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    super.didPopNext();
+    setState(() {
+      fetchUserData();
+    });
+  }
+
   Future<void> fetchUserData() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       String uid = user.uid;
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      DocumentSnapshot userDoc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
       if (userDoc.exists) {
         Users doc = Users.fromJson(userDoc.data()! as Map<String, dynamic>);
         setState(() {
           firstName = doc.firstName;
+          userMail = doc.mail;
+          lastName = doc.lastName;
         });
-        QuerySnapshot booksSnapshot = await userDoc.reference.collection('books').get();
+        QuerySnapshot booksSnapshot =
+            await userDoc.reference.collection('books').get();
         List<String> books = [];
         List<DateTime> dates = [];
+        List<String> IdBooks = [];
         for (var bookDoc in booksSnapshot.docs) {
+          IdBooks.add(bookDoc.id);
           books.add(bookDoc['name']);
           Timestamp timestamp = bookDoc['modifiedAt'];
           dates.add(timestamp.toDate());
@@ -55,6 +87,7 @@ class _BookPageState extends State<BookPage> {
         setState(() {
           userBooks = books;
           modifiedDates = dates;
+          bookIds = IdBooks;
         });
         await loadAllBookImages();
       } else {
@@ -65,11 +98,12 @@ class _BookPageState extends State<BookPage> {
     }
   }
 
-
   Future<void> loadAllBookImages() async {
     for (String book in userBooks) {
       List<String> images = await _loadImages(book);
+      List<String> maps = await _loadImageMaps(book);
       bookImages[book] = images;
+      bookMaps[book] = maps;
     }
     setState(() {});
   }
@@ -102,6 +136,24 @@ class _BookPageState extends State<BookPage> {
     return pages;
   }
 
+  Future<List<String>> _loadExplanations(String bookTitle) async {
+    final rootDir = await getExternalStorageDirectory();
+    final explPath = Directory('${rootDir!.path}/braillify/$bookTitle/expl');
+    List<String> expls = [];
+    if (await explPath.exists()) {
+      final files = explPath.listSync();
+      if (files.isNotEmpty) {
+        for (var file in files) {
+          if (file is File && file.path.endsWith('.txt')) {
+            String content = await file.readAsString();
+            expls.add(content);
+          }
+        }
+      }
+    }
+    return expls;
+  }
+
   Future<List<String>> _loadImages(String bookTitle) async {
     final rootDir = await getExternalStorageDirectory();
     final imgPath = Directory('${rootDir!.path}/braillify/$bookTitle/img');
@@ -125,22 +177,62 @@ class _BookPageState extends State<BookPage> {
         });
       }
     }
-
     return imagePaths;
   }
 
-  Widget _userItem(String bookTitle) {
+  Future<List<String>> _loadImageMaps(String bookTitle) async {
+    final rootDir = await getExternalStorageDirectory();
+    final mapPath = Directory('${rootDir!.path}/braillify/$bookTitle/map');
+    List<String> mapPaths = [];
+
+    if (await mapPath.exists()) {
+      final files = mapPath.listSync();
+      if (files.isNotEmpty) {
+        for (var file in files) {
+          if (file is File &&
+              (file.path.endsWith('.jpg') ||
+                  file.path.endsWith('.png') ||
+                  file.path.endsWith('.jpeg'))) {
+            mapPaths.add(file.path);
+          }
+        }
+        mapPaths.sort((a, b) {
+          String nameA = a.split('/').last;
+          String nameB = b.split('/').last;
+          return nameA.compareTo(nameB);
+        });
+      }
+    }
+    return mapPaths;
+  }
+
+  Widget _userItem(String bookTitle, DateTime modifiedDate, String bookId) {
     return Padding(
       padding: const EdgeInsets.only(left: 30, right: 30, top: 25),
       child: ElevatedButton(
         onPressed: () async {
           List<String> pages = await _loadPages(bookTitle);
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (context) => BookViewPage(
-                bookTitle: bookTitle,
-                pages: pages.isNotEmpty ? pages : ["No content available."],
-                images: bookImages[bookTitle] ?? []),
-          ));
+          List<String> expls = await _loadExplanations(bookTitle);
+          if (pages.isNotEmpty) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => BookViewPage(
+                  bookId: bookId,
+                  bookTitle: bookTitle,
+                  pages: pages,
+                  images: bookImages[bookTitle] ?? [],
+                  maps: bookMaps[bookTitle] ?? [],
+                  explanations: expls,
+                ),
+              ),
+            ).then((refreshNeeded) {
+              if(refreshNeeded == true) {
+                setState(() {
+                  fetchUserData();
+                });
+              }
+            });
+          }
         },
         style: ButtonStyle(
           backgroundColor: WidgetStateProperty.all<Color>(
@@ -155,6 +247,7 @@ class _BookPageState extends State<BookPage> {
         ),
         child: Row(
           children: [
+            //Book cover image
             Container(
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: bookImages[bookTitle]?.isNotEmpty == true
@@ -171,6 +264,8 @@ class _BookPageState extends State<BookPage> {
                     ),
             ),
             const Spacer(),
+
+            //Book name & date
             Column(
               children: [
                 Text(
@@ -182,8 +277,8 @@ class _BookPageState extends State<BookPage> {
                   ),
                 ),
                 Text(
-                  "Last Modified: 01/01/1111",
-                  style: TextStyle(
+                  'modified At: ${modifiedDate.toString().substring(0, 10)}',
+                  style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xff2A3663),
                   ),
@@ -200,10 +295,14 @@ class _BookPageState extends State<BookPage> {
   @override
   Widget build(BuildContext context) {
     double scrHeight = MediaQuery.of(context).size.height;
+    String fullName = "${firstName ?? ''} ${lastName ?? ''}".trim();
     return RefreshIndicator(
       onRefresh: fetchUserData,
       child: Scaffold(
-        drawer: const Navbar(),
+        drawer: Navbar(
+          name: fullName.isNotEmpty ? fullName : "User",
+          mail: userMail ?? "noemail@example.com",
+        ),
         body: CustomScrollView(
           slivers: <Widget>[
             SliverAppBar(
@@ -223,6 +322,8 @@ class _BookPageState extends State<BookPage> {
                   ),
                 );
               }),
+
+              //Intro Text
               flexibleSpace: FlexibleSpaceBar(
                 title: Padding(
                   padding: const EdgeInsets.only(left: 20, bottom: 5),
@@ -251,16 +352,20 @@ class _BookPageState extends State<BookPage> {
                 titlePadding: EdgeInsets.zero,
               ),
             ),
+
+            //Book Gallery
             SliverList(
               delegate: SliverChildBuilderDelegate(
                 (BuildContext context, int index) {
-                  return _userItem(userBooks[index]);
+                  return _userItem(userBooks[index], modifiedDates[index], bookIds[index]);
                 },
                 childCount: userBooks.length,
               ),
             ),
           ],
         ),
+
+        //Camera Button
         floatingActionButton: Padding(
           padding: const EdgeInsets.all(8.0),
           child: FloatingActionButton(
